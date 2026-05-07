@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (do not commit secrets here).
+aws_region                = "us-east-2"
+project_name              = "secure-cloud-tasks"
+environment               = "dev"
+vpc_cidr                  = "10.0.0.0/16"
+availability_zone_count   = 2
+enable_nat_ha             = false
+enable_vpc_flow_logs      = false
+db_name                   = "tasks"
+db_username               = "taskapp"
+db_instance_class         = "db.t3.micro"
+engine_version = "16"
+ec2_instance_type         = "t3.micro"
+app_port                  = 5000
+
+# common_tags = { Owner = "you@example.com" }

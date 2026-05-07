@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Secure Cloud Tasks</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <header class="border-b border-slate-800 bg-slate-900/90">
+    <div class="mx-auto max-w-4xl px-4 py-5">
+      <h1 class="text-2xl font-semibold tracking-tight">Secure Cloud Tasks</h1>
+      <p class="mt-1 text-sm text-slate-400">Minimal task manager running on AWS (ALB + EC2 + RDS)</p>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-4xl px-4 py-8">
+    <section class="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-lg shadow-black/30">
+      <h2 class="text-lg font-medium">Create Task</h2>
+      <form id="taskForm" class="mt-4 grid gap-3">
+        <div>
+          <label for="title" class="mb-1 block text-sm text-slate-300">Title <span class="text-rose-400">*</span></label>
+          <input id="title" name="title" required maxlength="200"
+            class="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none ring-cyan-500 focus:ring"
+            placeholder="Example: Harden SSH config">
+        </div>
+        <div>
+          <label for="description" class="mb-1 block text-sm text-slate-300">Description</label>
+          <textarea id="description" name="description" rows="3"
+            class="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none ring-cyan-500 focus:ring"
+            placeholder="Optional details"></textarea>
+        </div>
+        <div class="flex items-center gap-3">
+          <button type="submit"
+            class="rounded-md bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400">Add Task</button>
+          <span id="formMsg" class="text-sm text-slate-400"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-lg shadow-black/30">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-medium">Tasks</h2>
+        <button id="refreshBtn"
+          class="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800">Refresh</button>
+      </div>
+      <ul id="taskList" class="mt-4 grid gap-3"></ul>
+      <p id="emptyState" class="mt-3 hidden text-sm text-slate-400">No tasks yet. Add your first one above.</p>
+    </section>
+  </main>
+
+  <template id="taskItemTemplate">
+    <li class="rounded-lg border border-slate-800 bg-slate-950 p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-start gap-2">
+            <input type="checkbox" class="mt-1 h-4 w-4 cursor-pointer accent-cyan-500">
+            <div class="min-w-0">
+              <p class="task-title break-words font-medium"></p>
+              <p class="task-description mt-1 break-words text-sm text-slate-400"></p>
+            </div>
+          </div>
+        </div>
+        <button class="delete-btn rounded-md border border-rose-400/50 px-2.5 py-1 text-xs text-rose-300 hover:bg-rose-900/30">
+          Delete
+        </button>
+      </div>
+    </li>
+  </template>
+
+  <script>
+    const taskForm = document.getElementById("taskForm");
+    const titleInput = document.getElementById("title");
+    const descInput = document.getElementById("description");
+    const formMsg = document.getElementById("formMsg");
+    const taskList = document.getElementById("taskList");
+    const emptyState = document.getElementById("emptyState");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const template = document.getElementById("taskItemTemplate");
+
+    async function api(path, options = {}) {
+      const res = await fetch(path, {
+        headers: { "Content-Type": "application/json" },
+        ...options
+      });
+      if (res.status === 204) return null;
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error || `Request failed (${res.status})`);
+      }
+      return body;
+    }
+
+    function renderTasks(tasks) {
+      taskList.innerHTML = "";
+      emptyState.classList.toggle("hidden", tasks.length > 0);
+
+      for (const task of tasks) {
+        const node = template.content.firstElementChild.cloneNode(true);
+        const checkbox = node.querySelector("input[type='checkbox']");
+        const title = node.querySelector(".task-title");
+        const description = node.querySelector(".task-description");
+        const delBtn = node.querySelector(".delete-btn");
+
+        checkbox.checked = task.completed;
+        title.textContent = task.title;
+        if (task.completed) {
+          title.classList.add("line-through", "text-slate-400");
+        }
+
+        if (task.description) {
+          description.textContent = task.description;
+        } else {
+          description.textContent = "No description";
+          description.classList.add("italic");
+        }
+
+        checkbox.addEventListener("change", async () => {
+          try {
+            await api(`/tasks/${task.id}`, {
+              method: "PUT",
+              body: JSON.stringify({ completed: checkbox.checked })
+            });
+            await loadTasks();
+          } catch (err) {
+            checkbox.checked = !checkbox.checked;
+            formMsg.textContent = err.message;
+            formMsg.className = "text-sm text-rose-400";
+          }
+        });
+
+        delBtn.addEventListener("click", async () => {
+          try {
+            await api(`/tasks/${task.id}`, { method: "DELETE" });
+            await loadTasks();
+          } catch (err) {
+            formMsg.textContent = err.message;
+            formMsg.className = "text-sm text-rose-400";
+          }
+        });
+
+        taskList.appendChild(node);
+      }
+    }
+
+    async function loadTasks() {
+      const tasks = await api("/tasks");
+      renderTasks(tasks);
+    }
+
+    taskForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      formMsg.textContent = "";
+      const title = titleInput.value.trim();
+      const description = descInput.value.trim();
+      if (!title) return;
+      try {
+        await api("/tasks", {
+          method: "POST",
+          body: JSON.stringify({ title, description })
+        });
+        taskForm.reset();
+        formMsg.textContent = "Task created.";
+        formMsg.className = "text-sm text-emerald-400";
+        await loadTasks();
+      } catch (err) {
+        formMsg.textContent = err.message;
+        formMsg.className = "text-sm text-rose-400";
+      }
+    });
+
+    refreshBtn.addEventListener("click", loadTasks);
+    loadTasks().catch((err) => {
+      formMsg.textContent = err.message;
+      formMsg.className = "text-sm text-rose-400";
+    });
+  </script>
+</body>
+</html>
